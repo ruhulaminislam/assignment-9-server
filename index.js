@@ -36,6 +36,7 @@ app.get('/users', async (req, res) => {
   res.send(users);
 });
 //user block and unblock
+
 app.patch('/users/block/:id', async (req, res) => {
    
    const id = { _id: new ObjectId(req.params.id) };
@@ -43,6 +44,16 @@ app.patch('/users/block/:id', async (req, res) => {
     ...req.body
    }
    const result = await usersCollection.updateOne(id, { $set: data });
+   res.send(result);
+});
+
+
+
+
+//service add
+app.post("/services", async (req, res) => {
+   const service = req.body;
+   const result = await servicesCollection.insertOne(service);
    res.send(result);
 });
 //services api
