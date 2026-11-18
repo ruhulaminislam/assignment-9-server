@@ -1,7 +1,7 @@
 //server setup
 import express from 'express';
 import cors from 'cors';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
 const app = express();
 const port = 5000;
@@ -35,9 +35,18 @@ app.get('/users', async (req, res) => {
   const users = await usersCollection.find().toArray();
   res.send(users);
 });
-
+//user block and unblock
+app.patch('/users/block/:id', async (req, res) => {
+   
+   const id = { _id: new ObjectId(req.params.id) };
+   const data={
+    ...req.body
+   }
+   const result = await usersCollection.updateOne(id, { $set: data });
+   res.send(result);
+});
 //services api
-app.get("/services", async (req, res) => {
+app.get("/services/public", async (req, res) => {
   const { search, category, sort } = req.query;
 
   // ১. Filter
@@ -70,6 +79,18 @@ app.get("/services", async (req, res) => {
     .toArray();
 
   res.send(services);
+});
+//private services api
+app.get("/services", async (req, res) => {
+  const services = await servicesCollection.find().toArray();
+  res.send(services);
+});
+//services get by id
+app.get("/services/:id", async (req, res) => {
+  const id = req.params.id;
+  const objectId = new ObjectId(id);
+  const service = await servicesCollection.findOne({ _id: objectId });
+  res.send(service);
 });
  //api
 app.get('/', (req, res) => {
