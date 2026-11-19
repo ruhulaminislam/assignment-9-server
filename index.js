@@ -36,8 +36,17 @@ app.get('/users', async (req, res) => {
   res.send(users);
 });
 //user block and unblock
-
 app.patch('/users/block/:id', async (req, res) => {
+   
+   const id = { _id: new ObjectId(req.params.id) };
+   const data={
+    ...req.body
+   }
+   const result = await usersCollection.updateOne(id, { $set: data });
+   res.send(result);
+});
+//update admin profile
+app.patch('/users/update-admin/:id', async (req, res) => {
    
    const id = { _id: new ObjectId(req.params.id) };
    const data={
