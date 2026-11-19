@@ -103,6 +103,27 @@ app.get("/services/:id", async (req, res) => {
   const service = await servicesCollection.findOne({ _id: objectId });
   res.send(service);
 });
+//services delete
+app.delete("/services/delete/:id", async (req, res) => {
+  const id = req.params.id;
+  const objectId = new ObjectId(id);
+  const service = await servicesCollection.deleteOne({ _id: objectId });
+  res.send(service);
+});
+//services status update
+app.patch("/services/status/:id", async (req, res) => {
+  const id = req.params.id;
+  const objectId = new ObjectId(id);
+  const service = await servicesCollection.updateOne({ _id: objectId }, { $set: { status: req.body.status } });
+  res.send(service);
+});
+//services update
+app.patch("/services/update/:id", async (req, res) => {
+  const id = req.params.id;
+  const objectId = new ObjectId(id);
+  const service = await servicesCollection.updateOne({ _id: objectId }, { $set: req.body });
+  res.send(service);
+});
  //api
 app.get('/', (req, res) => {
   res.send('Hello World!');
