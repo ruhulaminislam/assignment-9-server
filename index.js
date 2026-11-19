@@ -55,7 +55,16 @@ app.patch('/users/update-admin/:id', async (req, res) => {
    const result = await usersCollection.updateOne(id, { $set: data });
    res.send(result);
 });
-
+//update user profile
+app.patch('/users/update-user/:id', async (req, res) => {
+   
+   const id = { _id: new ObjectId(req.params.id) };
+   const data={
+    ...req.body
+   }
+   const result = await usersCollection.updateOne(id, { $set: data });
+   res.send(result);
+});
 
 
 
@@ -137,6 +146,47 @@ app.patch("/services/update/:id", async (req, res) => {
 app.get('/', (req, res) => {
   res.send('Hello World!');
 });
+
+
+
+
+//appointment api
+app.post("/appointments", async (req, res) => {
+  const {appointmentDate,timeSlot} =req.body;
+  const custmerId = req.body.customerId;
+  const id={_id: new ObjectId(custmerId)};
+  const customer = await usersCollection.findOne(id);
+    if(customer.role==="admin"){
+      return res.status(400).send({ message: "Admin cannot book appointment" });
+    }
+  const existingAppointment = await appointmentsCollection.findOne({ appointmentDate, timeSlot,status:{$in:["pending","confirmed"]} });
+  if (existingAppointment) {
+    return res.status(400).send({ message: "Appointment already exists" });
+  }
+  const appointment = req.body;
+  const data = {
+    ...appointment,
+    createdAt: new Date(),
+    status: "pending",
+    paymentStatus: "unpaid"
+  };
+  const result = await appointmentsCollection.insertOne(data);
+  res.send(result);
+});
+//appointment get all
+app.get("/appointments", async (req, res) => {
+  const appointments = await appointmentsCollection.find().toArray();
+  res.send(appointments);
+});
+//appointment update status
+app.patch("/appointments/status/:id", async (req, res) => {
+  const id = req.params.id;
+  const objectId = new ObjectId(id);
+  const appointment = await appointmentsCollection.updateOne({ _id: objectId }, { $set: { status: req.body.status } });
+  res.send(appointment);
+});
+//appointment cancel
+
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
