@@ -187,6 +187,20 @@ app.patch("/appointments/status/:id", async (req, res) => {
 });
 //appointment cancel
 
+//get all appointment by customer id
+app.get("/appointments/customer/:id", async (req, res) => {
+  const id = req.params.id;
+ 
+  const appointments = await appointmentsCollection.find({ customerId: id }).toArray();
+  res.send(appointments);
+});
+//appointment cancel by user
+app.patch("/appointments/cancel/:id", async (req, res) => {
+  const id = req.params.id;
+  const objectId = new ObjectId(id);
+  const appointment = await appointmentsCollection.updateOne({ _id: objectId }, { $set: { status: "cancelled" } });
+  res.send(appointment);
+}); 
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
