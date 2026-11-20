@@ -3,6 +3,9 @@ import express from 'express';
 import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
+import Stripe from "stripe";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = 5000;
 
@@ -201,6 +204,111 @@ app.patch("/appointments/cancel/:id", async (req, res) => {
   const appointment = await appointmentsCollection.updateOne({ _id: objectId }, { $set: { status: "cancelled" } });
   res.send(appointment);
 }); 
+
+//transaction api
+app.post("/transactions", async (req, res) => {
+  try {
+    const { session_id } = req.body;
+
+    if (!session_id) {
+      return res.status(400).send({
+        success: false,
+        message: "Session ID is required",
+      });
+    }
+
+    // Retrieve checkout session from Stripe
+    const session = await stripe.checkout.sessions.retrieve(session_id);
+
+    const {
+      id,
+      status,
+      customer_email,
+      metadata,
+      payment_intent,
+      payment_status,
+      currency,
+      amount_total,
+    } = session;
+
+    // Verify payment
+    if (status !== "complete" || payment_status !== "paid") {
+      return res.status(400).send({
+        success: false,
+        message: "Payment is not completed",
+      });
+    }
+
+    // Get appointment ID from Stripe metadata
+    const appointmentId = metadata?.appointmentId;
+
+    if (!appointmentId) {
+      return res.status(400).send({
+        success: false,
+        message: "Appointment ID not found",
+      });
+    }
+
+    // Check if transaction already exists
+    const existingTransaction = await transactionsCollection.findOne({
+      session_id,
+    });
+
+    if (existingTransaction) {
+      return res.send({
+        success: true,
+        message: "Transaction already exists",
+        transaction: existingTransaction,
+      });
+    }
+
+    // Create transaction document
+    const transaction = {
+      session_id: id,
+      appointmentId,
+      status,
+      customer_email,
+      userId: metadata?.userId,
+      payment_intent,
+      payment_status,
+      amount: amount_total,
+      currency,
+      paymentDate: new Date(),
+    };
+
+    // Save transaction
+    const result = await transactionsCollection.insertOne(transaction);
+
+    // Update appointment payment status
+    const appointmentResult = await appointmentsCollection.updateOne(
+      {
+        _id: new ObjectId(appointmentId),
+      },
+      {
+        $set: {
+          paymentStatus: "paid",
+        },
+      }
+    );
+
+    return res.send({
+      success: true,
+      message: "Payment successful",
+      transactionId: result.insertedId,
+      appointmentUpdated: appointmentResult.modifiedCount > 0,
+    });
+
+  } catch (error) {
+    console.error("Transaction error:", error);
+
+    return res.status(500).send({
+      success: false,
+      message: "Transaction failed",
+    });
+  }
+});
+
+
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
