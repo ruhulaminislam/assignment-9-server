@@ -9,10 +9,113 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = 5000;
 
-
-//middleware
-app.use(express.json());
 app.use(cors());
+//middleware
+// Stripe Webhook Route এখানে থাকবে
+app.post(
+  "/webhook/stripe",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    let event;
+
+    // 1. Stripe Signature Verification
+    const signature = req.headers["stripe-signature"];
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        signature,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (error) {
+      console.error("Webhook signature verification failed:", error.message);
+      return res.status(400).send("Invalid signature");
+    }
+
+    try {
+      // 2. Handle only completed Checkout payments
+      if (event.type !== "checkout.session.completed") {
+        return res.status(200).send("Event ignored");
+      }
+
+      const session = event.data.object;
+
+      const {
+        id: session_id,
+        status,
+        customer_email,
+        metadata,
+        payment_intent,
+        payment_status,
+        currency,
+        amount_total,
+      } = session;
+
+      // 3. Verify payment
+      if (status !== "complete" || payment_status !== "paid") {
+        return res.status(200).send("Payment not completed");
+      }
+
+      // 4. Get appointment ID
+      const appointmentId = metadata?.appointmentId;
+
+      if (!appointmentId || !ObjectId.isValid(appointmentId)) {
+        console.error("Invalid appointment ID:", appointmentId);
+        return res.status(400).send("Invalid appointment ID");
+      }
+
+      // 5. Check existing transaction
+      const existingTransaction = await transactionsCollection.findOne({
+        session_id,
+      });
+
+      if (existingTransaction) {
+        // Ensure appointment is also marked as paid
+        await appointmentsCollection.updateOne(
+          { _id: new ObjectId(appointmentId) },
+          { $set: { paymentStatus: "paid" } }
+        );
+
+        return res.status(200).send("Transaction already exists");
+      }
+
+      // 6. Create transaction
+      const transaction = {
+        session_id,
+        appointmentId,
+        status,
+        customer_email,
+        userId: metadata?.userId,
+        payment_intent,
+        payment_status,
+        amount: amount_total,
+        currency,
+        paymentDate: new Date(),
+      };
+
+      await transactionsCollection.insertOne(transaction);
+
+      // 7. Update appointment payment status
+      await appointmentsCollection.updateOne(
+        { _id: new ObjectId(appointmentId) },
+        { $set: { paymentStatus: "paid" } }
+      );
+
+      console.log("Stripe webhook: Payment processed successfully");
+
+      return res.status(200).send({
+        received: true,
+        message: "Payment processed successfully",
+      });
+
+    } catch (error) {
+      console.error("Stripe webhook processing error:", error);
+      return res.status(500).send("Webhook processing failed");
+    }
+  }
+);
+app.use(express.json());
+
 
 //mongodb conection
 
@@ -307,9 +410,26 @@ app.post("/transactions", async (req, res) => {
     });
   }
 });
-
+//get all transactions
+app.get("/transactions", async (req, res) => {
+  try {
+    const transactions = await transactionsCollection.find().toArray();
+    res.send({
+      success: true,
+      message: "Transactions retrieved successfully",
+      transactions,
+    });
+  } catch (error) {
+    console.error("Error retrieving transactions:", error);
+    res.status(500).send({
+      success: false,
+      message: "Failed to retrieve transactions",
+    });
+  }
+});
 
 
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
+export default app;
