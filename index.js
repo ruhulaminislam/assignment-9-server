@@ -133,8 +133,57 @@ const connectedClient = await connectToMongoDB();
 const db = connectedClient.db("assignment-nine");
 const servicesCollection = db.collection("services");
 const usersCollection = db.collection("user");
+const sessionsCollection = db.collection("session");
 const appointmentsCollection = db.collection("appointments");
 const transactionsCollection = db.collection("transactions");
+
+//token verify 
+const verifyToken = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+        return res.status(401).send({ message: 'Unauthorized' });
+      
+    }
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+        return res.status(401).send({ message: 'Unauthorized' });
+    }
+    const query={token}
+    const session=await sessionsCollection.findOne(query,)
+    if(!session){
+        return res.status(401).send({ message: 'Unauthorized' });
+    }
+    const userId=session.userId;
+    const userQuery={_id: new ObjectId(userId)}
+     const user=await usersCollection.findOne(userQuery)
+     if(!user){
+        return res.status(401).send({ message: 'Unauthorized' });
+     }
+    req.user=user;
+    next();
+}
+const veryfiuser=(req,res,next)=>{
+   
+    if(req.user.role!=='user'){
+        return res.status(401).send({ message: 'Unauthorized' });
+    }
+    next();
+}
+const verifyAdmin=(req,res,next)=>{
+    if(req.user.role!=='admin'){
+        return res.status(401).send({ message: 'Unauthorized' });
+    }
+    next();
+}
+
+
+app.get('/', verifyToken,verifyAdmin,(req, res) => {
+  res.send('Hello World!');
+});
+
+
+
+
 
 //user api
 app.get('/users', async (req, res) => {
@@ -175,7 +224,7 @@ app.patch('/users/update-user/:id', async (req, res) => {
 
 
 //service add
-app.post("/services", async (req, res) => {
+app.post("/services", verifyToken,verifyAdmin,async (req, res) => {
    const service = req.body;
    const result = await servicesCollection.insertOne(service);
    res.send(result);
@@ -249,9 +298,7 @@ app.patch("/services/update/:id", async (req, res) => {
   res.send(service);
 });
  //api
-app.get('/', (req, res) => {
-  res.send('Hello World!');
-});
+
 
 
 
@@ -281,6 +328,7 @@ app.post("/appointments", async (req, res) => {
 });
 //appointment get all
 app.get("/appointments", async (req, res) => {
+ 
   const appointments = await appointmentsCollection.find().toArray();
   res.send(appointments);
 });
