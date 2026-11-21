@@ -186,23 +186,34 @@ app.get('/', verifyToken,verifyAdmin,(req, res) => {
 
 
 //user api
-app.get('/users', async (req, res) => {
+app.get('/users',verifyToken,verifyAdmin, async (req, res) => {
   const users = await usersCollection.find().toArray();
   res.send(users);
 });
 //user block and unblock
-app.patch('/users/block/:id', async (req, res) => {
-   
-   const id = { _id: new ObjectId(req.params.id) };
-   const data={
-    ...req.body
-   }
-   const result = await usersCollection.updateOne(id, { $set: data });
-   res.send(result);
+app.patch("/users/block/:id", verifyToken, verifyAdmin, async (req, res) => {
+  const id = req.params.id;
+
+  if (!ObjectId.isValid(id)) {
+    return res.status(400).send({ message: "Invalid user ID" });
+  }
+
+  const query = { _id: new ObjectId(id) };
+
+ 
+
+  const result = await usersCollection.updateOne(query, {
+    $set: req.body,
+  });
+
+  res.send(result);
 });
 //update admin profile
-app.patch('/users/update-admin/:id', async (req, res) => {
-   
+app.patch('/users/update-admin/:id',verifyToken,verifyAdmin, async (req, res) => {
+   const isValid = req.params.id;
+  if (!ObjectId.isValid(isValid)) {
+    return res.status(400).send({ message: "Invalid user ID" });
+  }
    const id = { _id: new ObjectId(req.params.id) };
    const data={
     ...req.body
@@ -211,8 +222,11 @@ app.patch('/users/update-admin/:id', async (req, res) => {
    res.send(result);
 });
 //update user profile
-app.patch('/users/update-user/:id', async (req, res) => {
-   
+app.patch('/users/update-user/:id',verifyToken,veryfiuser, async (req, res) => {
+   const isValid = req.params.id;
+  if (!ObjectId.isValid(isValid)) {
+    return res.status(400).send({ message: "Invalid user ID" });
+  }
    const id = { _id: new ObjectId(req.params.id) };
    const data={
     ...req.body
@@ -255,17 +269,18 @@ app.get("/services/public", async (req, res) => {
 
   if (sort === "price-asc") sortOption = { price: 1 };
   if (sort === "price-desc") sortOption = { price: -1 };
-
+  //filter service by status
+  
   // ৩. Database থেকে data আনা
   const services = await servicesCollection
-    .find(filter)
+    .find({...filter,status:"active"})
     .sort(sortOption)
     .toArray();
 
   res.send(services);
 });
 //private services api
-app.get("/services", async (req, res) => {
+app.get("/services",verifyToken,verifyAdmin, async (req, res) => {
   const services = await servicesCollection.find().toArray();
   res.send(services);
 });
@@ -273,25 +288,25 @@ app.get("/services", async (req, res) => {
 app.get("/services/:id", async (req, res) => {
   const id = req.params.id;
   const objectId = new ObjectId(id);
-  const service = await servicesCollection.findOne({ _id: objectId });
+  const service = await servicesCollection.findOne({ _id: objectId ,status:"active" });
   res.send(service);
 });
 //services delete
-app.delete("/services/delete/:id", async (req, res) => {
+app.delete("/services/delete/:id",verifyToken,verifyAdmin, async (req, res) => {
   const id = req.params.id;
   const objectId = new ObjectId(id);
   const service = await servicesCollection.deleteOne({ _id: objectId });
   res.send(service);
 });
 //services status update
-app.patch("/services/status/:id", async (req, res) => {
+app.patch("/services/status/:id",verifyToken,verifyAdmin, async (req, res) => {
   const id = req.params.id;
   const objectId = new ObjectId(id);
   const service = await servicesCollection.updateOne({ _id: objectId }, { $set: { status: req.body.status } });
   res.send(service);
 });
 //services update
-app.patch("/services/update/:id", async (req, res) => {
+app.patch("/services/update/:id",verifyToken,verifyAdmin, async (req, res) => {
   const id = req.params.id;
   const objectId = new ObjectId(id);
   const service = await servicesCollection.updateOne({ _id: objectId }, { $set: req.body });
@@ -303,8 +318,8 @@ app.patch("/services/update/:id", async (req, res) => {
 
 
 
-//appointment api
-app.post("/appointments", async (req, res) => {
+//appointment api for customer
+app.post("/appointments",verifyToken,veryfiuser, async (req, res) => {
   const {appointmentDate,timeSlot} =req.body;
   const custmerId = req.body.customerId;
   const id={_id: new ObjectId(custmerId)};
@@ -326,38 +341,95 @@ app.post("/appointments", async (req, res) => {
   const result = await appointmentsCollection.insertOne(data);
   res.send(result);
 });
-//appointment get all
-app.get("/appointments", async (req, res) => {
+//appointment get all for admin
+app.get("/appointments",verifyToken,verifyAdmin, async (req, res) => {
  
   const appointments = await appointmentsCollection.find().toArray();
   res.send(appointments);
 });
-//appointment update status
-app.patch("/appointments/status/:id", async (req, res) => {
+//appointment update status   by admin
+app.patch("/appointments/status/:id",verifyToken, async (req, res) => {
   const id = req.params.id;
   const objectId = new ObjectId(id);
   const appointment = await appointmentsCollection.updateOne({ _id: objectId }, { $set: { status: req.body.status } });
   res.send(appointment);
 });
-//appointment cancel
+
 
 //get all appointment by customer id
-app.get("/appointments/customer/:id", async (req, res) => {
-  const id = req.params.id;
- 
-  const appointments = await appointmentsCollection.find({ customerId: id }).toArray();
-  res.send(appointments);
+app.get("/appointments/customer/:id", verifyToken, veryfiuser, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const appointments = await appointmentsCollection
+      .find({
+        customerId: id,
+      })
+      .toArray();
+
+    res.send(appointments);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).send({
+      success: false,
+      message: "Server error",
+    });
+  }
 });
+
+
 //appointment cancel by user
-app.patch("/appointments/cancel/:id", async (req, res) => {
-  const id = req.params.id;
-  const objectId = new ObjectId(id);
-  const appointment = await appointmentsCollection.updateOne({ _id: objectId }, { $set: { status: "cancelled" } });
-  res.send(appointment);
-}); 
+app.patch(
+  "/appointments/cancel/:id",
+  verifyToken,
+  veryfiuser,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).send({
+          success: false,
+          message: "Invalid appointment id",
+        });
+      }
+
+      const result = await appointmentsCollection.updateOne(
+        {
+          _id: new ObjectId(id),
+          customerId: req.user._id.toString(),
+          status: "pending",
+        },
+        {
+          $set: { status: "cancelled" },
+        }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).send({
+          success: false,
+          message: "Appointment not found, not yours, or no longer pending",
+        });
+      }
+
+      return res.status(200).send({
+        success: true,
+        message: "Appointment cancelled",
+      });
+    } catch (error) {
+      console.error("Cancel appointment error:", error);
+
+      return res.status(500).send({
+        success: false,
+        message: "Server error",
+      });
+    }
+  }
+);
 
 //transaction api
-app.post("/transactions", async (req, res) => {
+app.post("/transactions",  async (req, res) => {
   try {
     const { session_id } = req.body;
 
@@ -459,7 +531,7 @@ app.post("/transactions", async (req, res) => {
   }
 });
 //get all transactions
-app.get("/transactions", async (req, res) => {
+app.get("/transactions",verifyToken,   async (req, res) => {
   try {
     const transactions = await transactionsCollection.find().toArray();
     res.send({
