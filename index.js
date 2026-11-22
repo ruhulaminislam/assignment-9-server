@@ -319,7 +319,8 @@ app.patch("/services/update/:id",verifyToken,verifyAdmin, async (req, res) => {
 
 
 //appointment api for customer
-app.post("/appointments",verifyToken,veryfiuser, async (req, res) => {
+app.post("/appointments",verifyToken, async (req, res) => {
+  
   const {appointmentDate,timeSlot} =req.body;
   const custmerId = req.body.customerId;
   const id={_id: new ObjectId(custmerId)};
