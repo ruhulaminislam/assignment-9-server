@@ -13,13 +13,16 @@ const port = 5000;
 app.use(cors());
 //middleware
 // Stripe Webhook Route এখানে থাকবে
+
+// অবশ্যই express.json() middleware-এর আগে রাখতে হবে
+
 app.post(
   "/webhook/stripe",
   express.raw({ type: "application/json" }),
   async (req, res) => {
     let event;
 
-    // 1. Stripe Signature Verification
+    // 1. Verify Stripe Signature
     const signature = req.headers["stripe-signature"];
 
     try {
@@ -34,7 +37,7 @@ app.post(
     }
 
     try {
-      // 2. Handle only completed Checkout payments
+      // 2. Handle completed Checkout Session
       if (event.type !== "checkout.session.completed") {
         return res.status(200).send("Event ignored");
       }
@@ -52,12 +55,12 @@ app.post(
         amount_total,
       } = session;
 
-      // 3. Verify payment
+      // 3. Verify Payment
       if (status !== "complete" || payment_status !== "paid") {
         return res.status(200).send("Payment not completed");
       }
 
-      // 4. Get appointment ID
+      // 4. Get Appointment ID
       const appointmentId = metadata?.appointmentId;
 
       if (!appointmentId || !ObjectId.isValid(appointmentId)) {
@@ -65,13 +68,13 @@ app.post(
         return res.status(400).send("Invalid appointment ID");
       }
 
-      // 5. Check existing transaction
-      const existingTransaction = await transactionsCollection.findOne({
-        session_id,
-      });
+      // 5. Check Existing Transaction
+      const existingTransaction =
+        await transactionsCollection.findOne({
+          stripeSessionId: session_id,
+        });
 
       if (existingTransaction) {
-        // Ensure appointment is also marked as paid
         await appointmentsCollection.updateOne(
           { _id: new ObjectId(appointmentId) },
           { $set: { paymentStatus: "paid" } }
@@ -80,26 +83,31 @@ app.post(
         return res.status(200).send("Transaction already exists");
       }
 
-      // 6. Create transaction
+      // 6. Create Transaction
       const transaction = {
-        session_id,
+        stripeSessionId: session_id,
         appointmentId,
-        status,
-        customer_email,
-        userId: metadata?.userId,
-        payment_intent,
-        payment_status,
+        customerId: metadata?.userId,
+        status: "paid",
         amount: amount_total,
         currency,
-        paymentDate: new Date(),
+        createdAt: new Date(),
+
+        // Optional additional information
+        customer_email,
+        payment_intent,
       };
 
       await transactionsCollection.insertOne(transaction);
 
-      // 7. Update appointment payment status
+      // 7. Update Appointment Payment Status
       await appointmentsCollection.updateOne(
         { _id: new ObjectId(appointmentId) },
-        { $set: { paymentStatus: "paid" } }
+        {
+          $set: {
+            paymentStatus: "paid",
+          },
+        }
       );
 
       console.log("Stripe webhook: Payment processed successfully");
@@ -111,6 +119,7 @@ app.post(
 
     } catch (error) {
       console.error("Stripe webhook processing error:", error);
+
       return res.status(500).send("Webhook processing failed");
     }
   }
@@ -402,11 +411,11 @@ app.get("/appointments/customer/:id", verifyToken,veryfiyUser, async (req, res) 
   try {
     const { id } = req.params;
 
-    const appointments = await appointmentsCollection
-      .find({
-        customerId: id,
-      })
-      .toArray();
+   const appointments = await appointmentsCollection
+  .find({
+    customerId: req.user._id.toString(),
+  })
+  .toArray();
 
     res.send(appointments);
   } catch (error) {
@@ -470,109 +479,68 @@ app.patch(
 );
 
 //transaction api
-app.post("/transactions",  async (req, res) => {
-  try {
-    const { session_id } = req.body;
+app.post(
+  "/transactions",
+  verifyToken,
+  veryfiyUser,
+  async (req, res) => {
+    try {
+      const { session_id } = req.body;
 
-    if (!session_id) {
-      return res.status(400).send({
-        success: false,
-        message: "Session ID is required",
+      if (!session_id) {
+        return res.status(400).send({
+          success: false,
+          message: "Session ID is required",
+        });
+      }
+
+      // 1. Retrieve Checkout Session from Stripe
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+
+      // 2. Verify Payment
+      if (
+        session.status !== "complete" ||
+        session.payment_status !== "paid"
+      ) {
+        return res.status(400).send({
+          success: false,
+          message: "Payment is not completed",
+        });
+      }
+
+      // 3. Get Transaction Created by Webhook
+      const transaction = await transactionsCollection.findOne({
+        stripeSessionId: session.id,
       });
-    }
 
-    // Retrieve checkout session from Stripe
-    const session = await stripe.checkout.sessions.retrieve(session_id);
+      // Webhook may not have processed the event yet
+      if (!transaction) {
+        return res.status(202).send({
+          success: false,
+          processing: true,
+          message: "Payment is being processed. Please try again.",
+        });
+      }
 
-    const {
-      id,
-      status,
-      customer_email,
-      metadata,
-      payment_intent,
-      payment_status,
-      currency,
-      amount_total,
-    } = session;
-
-    // Verify payment
-    if (status !== "complete" || payment_status !== "paid") {
-      return res.status(400).send({
-        success: false,
-        message: "Payment is not completed",
-      });
-    }
-
-    // Get appointment ID from Stripe metadata
-    const appointmentId = metadata?.appointmentId;
-
-    if (!appointmentId) {
-      return res.status(400).send({
-        success: false,
-        message: "Appointment ID not found",
-      });
-    }
-
-    // Check if transaction already exists
-    const existingTransaction = await transactionsCollection.findOne({
-      session_id,
-    });
-
-    if (existingTransaction) {
+      // 4. Send Transaction Information to Success Page
       return res.send({
         success: true,
-        message: "Transaction already exists",
-        transaction: existingTransaction,
+        message: "Payment successful",
+        transaction,
+      });
+
+    } catch (error) {
+      console.error("Transaction error:", error);
+
+      return res.status(500).send({
+        success: false,
+        message: "Transaction information could not be retrieved",
       });
     }
-
-    // Create transaction document
-    const transaction = {
-      session_id: id,
-      appointmentId,
-      status,
-      customer_email,
-      userId: metadata?.userId,
-      payment_intent,
-      payment_status,
-      amount: amount_total,
-      currency,
-      paymentDate: new Date(),
-    };
-
-    // Save transaction
-    const result = await transactionsCollection.insertOne(transaction);
-
-    // Update appointment payment status
-    const appointmentResult = await appointmentsCollection.updateOne(
-      {
-        _id: new ObjectId(appointmentId),
-      },
-      {
-        $set: {
-          paymentStatus: "paid",
-        },
-      }
-    );
-
-    return res.send({
-      success: true,
-      message: "Payment successful",
-      transactionId: result.insertedId,
-      appointmentUpdated: appointmentResult.modifiedCount > 0,
-    });
-
-  } catch (error) {
-    console.error("Transaction error:", error);
-
-    return res.status(500).send({
-      success: false,
-      message: "Transaction failed",
-    });
   }
-});
+);
 //get all transactions
-app.get("/transactions",verifyToken,   async (req, res) => {
+app.get("/transactions",verifyToken, verifyAdmin,  async (req, res) => {
   try {
     const transactions = await transactionsCollection.find().toArray();
     res.send({
