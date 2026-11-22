@@ -4,6 +4,7 @@ import cors from 'cors';
 import { MongoClient, ObjectId } from 'mongodb';
 import 'dotenv/config'
 import Stripe from "stripe";
+import { jwtVerify, createRemoteJWKSet } from "jose";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const app = express();
@@ -137,32 +138,65 @@ const sessionsCollection = db.collection("session");
 const appointmentsCollection = db.collection("appointments");
 const transactionsCollection = db.collection("transactions");
 
-//token verify 
-const verifyToken = async (req, res, next) => {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-        return res.status(401).send({ message: 'Unauthorized' });
-      
-    }
-    const token = authHeader.split(' ')[1];
-    if (!token) {
-        return res.status(401).send({ message: 'Unauthorized' });
-    }
-    const query={token}
-    const session=await sessionsCollection.findOne(query,)
-    if(!session){
-        return res.status(401).send({ message: 'Unauthorized' });
-    }
-    const userId=session.userId;
-    const userQuery={_id: new ObjectId(userId)}
-     const user=await usersCollection.findOne(userQuery)
-     if(!user){
-        return res.status(401).send({ message: 'Unauthorized' });
-     }
-    req.user=user;
-    next();
+//middleware to parse incoming JSON requests
+const verifyToken= async(req,res,next)=>{
+  const authHeader=req.headers.authorization
+  if(!authHeader){
+     return res.status(401).send({mes:"not autheratization"})
+  }
+  const token=authHeader.split(" ")[1]
+  console.log(token)
+  if(!token){
+    return res.status(401).send({mes:"not autheratization"})
+  }
+  const JWKS=createRemoteJWKSet(new URL(`${process.env.BETTER_AUTH_URL}/api/auth/jwks`))
+  try {
+   const { payload } = await jwtVerify(token, JWKS);
+
+const user = await usersCollection.findOne({
+  _id: new ObjectId(payload.sub),
+});
+console.log(user)
+if (!user) {
+  return res.status(401).send({
+    message: "User not found",
+  });
 }
-const veryfiuser=(req,res,next)=>{
+
+req.user = user;
+next();
+     
+  } catch (error) {
+    return res.status(401).send({mes:"not authorization"})
+  }
+ 
+}
+//token verify 
+// const verifyToken = async (req, res, next) => {
+//     const authHeader = req.headers.authorization;
+//     if (!authHeader) {
+//         return res.status(401).send({ message: 'Unauthorized' });
+      
+//     }
+//     const token = authHeader.split(' ')[1];
+//     if (!token) {
+//         return res.status(401).send({ message: 'Unauthorized' });
+//     }
+//     const query={token}
+//     const session=await sessionsCollection.findOne(query,)
+//     if(!session){
+//         return res.status(401).send({ message: 'Unauthorized' });
+//     }
+//     const userId=session.userId;
+//     const userQuery={_id: new ObjectId(userId)}
+//      const user=await usersCollection.findOne(userQuery)
+//      if(!user){
+//         return res.status(401).send({ message: 'Unauthorized' });
+//      }
+//     req.user=user;
+//     next();
+// }
+const veryfiyUser=(req,res,next)=>{
    
     if(req.user.role!=='user'){
         return res.status(401).send({ message: 'Unauthorized' });
@@ -175,9 +209,12 @@ const verifyAdmin=(req,res,next)=>{
     }
     next();
 }
+//middleware to parse incoming JSON requests
 
 
-app.get('/', verifyToken,verifyAdmin,(req, res) => {
+
+
+app.get('/',(req, res) => {
   res.send('Hello World!');
 });
 
@@ -191,7 +228,7 @@ app.get('/users',verifyToken,verifyAdmin, async (req, res) => {
   res.send(users);
 });
 //user block and unblock
-app.patch("/users/block/:id", verifyToken, verifyAdmin, async (req, res) => {
+app.patch("/users/block/:id", verifyToken,verifyAdmin,  async (req, res) => {
   const id = req.params.id;
 
   if (!ObjectId.isValid(id)) {
@@ -222,7 +259,7 @@ app.patch('/users/update-admin/:id',verifyToken,verifyAdmin, async (req, res) =>
    res.send(result);
 });
 //update user profile
-app.patch('/users/update-user/:id',verifyToken,veryfiuser, async (req, res) => {
+app.patch('/users/update-user/:id',verifyToken,veryfiyUser, async (req, res) => {
    const isValid = req.params.id;
   if (!ObjectId.isValid(isValid)) {
     return res.status(400).send({ message: "Invalid user ID" });
@@ -240,6 +277,9 @@ app.patch('/users/update-user/:id',verifyToken,veryfiuser, async (req, res) => {
 //service add
 app.post("/services", verifyToken,verifyAdmin,async (req, res) => {
    const service = req.body;
+   if (!service.image) {
+     return res.status(400).send({ error: "Service image is required" });
+   }
    const result = await servicesCollection.insertOne(service);
    res.send(result);
 });
@@ -285,7 +325,7 @@ app.get("/services",verifyToken,verifyAdmin, async (req, res) => {
   res.send(services);
 });
 //services get by id
-app.get("/services/:id", async (req, res) => {
+app.get("/services/:id",verifyToken, async (req, res) => {
   const id = req.params.id;
   const objectId = new ObjectId(id);
   const service = await servicesCollection.findOne({ _id: objectId ,status:"active" });
@@ -319,7 +359,7 @@ app.patch("/services/update/:id",verifyToken,verifyAdmin, async (req, res) => {
 
 
 //appointment api for customer
-app.post("/appointments",verifyToken, async (req, res) => {
+app.post("/appointments",verifyToken,veryfiyUser, async (req, res) => {
   
   const {appointmentDate,timeSlot} =req.body;
   const custmerId = req.body.customerId;
@@ -349,7 +389,7 @@ app.get("/appointments",verifyToken,verifyAdmin, async (req, res) => {
   res.send(appointments);
 });
 //appointment update status   by admin
-app.patch("/appointments/status/:id",verifyToken, async (req, res) => {
+app.patch("/appointments/status/:id",verifyToken,verifyAdmin, async (req, res) => {
   const id = req.params.id;
   const objectId = new ObjectId(id);
   const appointment = await appointmentsCollection.updateOne({ _id: objectId }, { $set: { status: req.body.status } });
@@ -358,7 +398,7 @@ app.patch("/appointments/status/:id",verifyToken, async (req, res) => {
 
 
 //get all appointment by customer id
-app.get("/appointments/customer/:id", verifyToken, veryfiuser, async (req, res) => {
+app.get("/appointments/customer/:id", verifyToken,veryfiyUser, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -384,7 +424,7 @@ app.get("/appointments/customer/:id", verifyToken, veryfiuser, async (req, res) 
 app.patch(
   "/appointments/cancel/:id",
   verifyToken,
-  veryfiuser,
+  veryfiyUser,
   async (req, res) => {
     try {
       const { id } = req.params;
