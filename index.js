@@ -236,7 +236,7 @@ app.get('/users',verifyToken,verifyAdmin, async (req, res) => {
   const users = await usersCollection.find().toArray();
   res.send(users);
 });
-//user block and unblock
+//user block and unblock admin
 app.patch("/users/block/:id", verifyToken,verifyAdmin,  async (req, res) => {
   const id = req.params.id;
 
@@ -269,6 +269,9 @@ app.patch('/users/update-admin/:id',verifyToken,verifyAdmin, async (req, res) =>
 });
 //update user profile
 app.patch('/users/update-user/:id',verifyToken,veryfiyUser, async (req, res) => {
+  if(req.user.isBlocked){
+    return res.status(403).send({ message: "Forbidden access" });
+  }
    const isValid = req.params.id;
   if (!ObjectId.isValid(isValid)) {
     return res.status(400).send({ message: "Invalid user ID" });
@@ -335,6 +338,10 @@ app.get("/services",verifyToken,verifyAdmin, async (req, res) => {
 });
 //services get by id
 app.get("/services/:id",verifyToken, async (req, res) => {
+  console.log(req.user);
+  if(req.user.isBlocked){
+    return res.status(403).send({ message: "Forbidden access" });
+  }
   const id = req.params.id;
   const objectId = new ObjectId(id);
   const service = await servicesCollection.findOne({ _id: objectId ,status:"active" });
@@ -369,7 +376,9 @@ app.patch("/services/update/:id",verifyToken,verifyAdmin, async (req, res) => {
 
 //appointment api for customer
 app.post("/appointments",verifyToken,veryfiyUser, async (req, res) => {
-  
+  if(req.user.isBlocked){
+    return res.status(403).send({ message: "Forbidden access" });
+  }
   const {appointmentDate,timeSlot} =req.body;
   const custmerId = req.body.customerId;
   const id={_id: new ObjectId(custmerId)};
@@ -408,6 +417,9 @@ app.patch("/appointments/status/:id",verifyToken,verifyAdmin, async (req, res) =
 
 //get all appointment by customer id
 app.get("/appointments/customer/:id", verifyToken,veryfiyUser, async (req, res) => {
+  if(req.user.isBlocked){
+    return res.status(403).send({ message: "Forbidden access" });
+  }
   try {
     const { id } = req.params;
 
@@ -541,20 +553,23 @@ app.post(
 );
 //get all transactions
 app.get("/transactions",verifyToken, verifyAdmin,  async (req, res) => {
-  try {
-    const transactions = await transactionsCollection.find().toArray();
-    res.send({
-      success: true,
-      message: "Transactions retrieved successfully",
-      transactions,
-    });
-  } catch (error) {
-    console.error("Error retrieving transactions:", error);
-    res.status(500).send({
-      success: false,
-      message: "Failed to retrieve transactions",
-    });
-  }
+  // try {
+  //   const transactions = await transactionsCollection.find().toArray();
+  //   console.log(transactions);
+  //   res.send({
+  //     success: true,
+  //     message: "Transactions retrieved successfully",
+  //     transactions,
+  //   });
+  // } catch (error) {
+  //   console.error("Error retrieving transactions:", error);
+  //   res.status(500).send({
+  //     success: false,
+  //     message: "Failed to retrieve transactions",
+  //   });
+  // }
+  const transactions = await transactionsCollection.find().toArray();
+  res.send(transactions);
 });
 
 
